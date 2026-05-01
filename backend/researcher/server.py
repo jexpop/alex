@@ -26,6 +26,22 @@ load_dotenv(override=True)
 
 app = FastAPI(title="Servicio Alex Researcher")
 
+# Configuración por variables de entorno (compatible con ECS/App Runner/local)
+BEDROCK_REGION = (
+    os.environ.get("AWS_REGION_NAME")
+    or os.environ.get("AWS_REGION")
+    or os.environ.get("AWS_DEFAULT_REGION")
+    or os.environ.get("DEFAULT_AWS_REGION")
+    or "us-east-1"
+)
+
+# Permite configurar el modelo sin tocar código (recomendado)
+# Ejemplos:
+# - bedrock/us.amazon.nova-pro-v1:0
+# - bedrock/eu.amazon.nova-pro-v1:0
+# - bedrock/amazon.nova-pro-v1:0 (sin perfiles de inferencia)
+BEDROCK_MODEL = os.environ.get("BEDROCK_MODEL") or "bedrock/us.amazon.nova-pro-v1:0"
+
 
 # Modelo de solicitud
 class ResearchRequest(BaseModel):
@@ -41,21 +57,12 @@ async def run_research_agent(topic: str = None) -> str:
     else:
         query = DEFAULT_RESEARCH_PROMPT
 
-    # Por favor, sobrescribe estas variables con la región que usas
-    # Otras opciones: us-west-2 (para modelos OSS de OpenAI) y eu-central-1
-    REGION = "us-east-1"
-    os.environ["AWS_REGION_NAME"] = REGION  # Variable preferida por LiteLLM
-    os.environ["AWS_REGION"] = REGION  # Estándar Boto3
-    os.environ["AWS_DEFAULT_REGION"] = REGION  # Alternativa
+    # LiteLLM (Bedrock) requiere AWS_REGION_NAME; también seteamos las estándar de boto3
+    os.environ["AWS_REGION_NAME"] = BEDROCK_REGION
+    os.environ["AWS_REGION"] = BEDROCK_REGION
+    os.environ["AWS_DEFAULT_REGION"] = BEDROCK_REGION
 
-    # Por favor, sobrescribe esta variable con el modelo que estás usando
-    # Opciones comunes: bedrock/eu.amazon.nova-pro-v1:0 para EU y bedrock/us.amazon.nova-pro-v1:0 para US
-    # o bedrock/amazon.nova-pro-v1:0 si no usas perfiles de inferencia
-    # bedrock/openai.gpt-oss-120b-1:0 para modelos OSS de OpenAI
-    # bedrock/converse/us.anthropic.claude-sonnet-4-20250514-v1:0 para Claude Sonnet 4
-    # NOTA: se necesita nova-pro para soportar herramientas y MCP servers; nova-lite no es suficiente - gracias Yuelin L.!
-    MODEL = "bedrock/us.amazon.nova-pro-v1:0"
-    model = LitellmModel(model=MODEL)
+    model = LitellmModel(model=BEDROCK_MODEL)
 
     # Crear y ejecutar el agente con el servidor MCP
     with trace("Researcher"):
@@ -146,7 +153,7 @@ async def health():
         "timestamp": datetime.now(UTC).isoformat(),
         "debug_container": container_indicators,
         "aws_region": os.environ.get("AWS_DEFAULT_REGION", "not set"),
-        "bedrock_model": "bedrock/amazon.nova-pro-v1:0",
+        "bedrock_model": BEDROCK_MODEL,
     }
 
 

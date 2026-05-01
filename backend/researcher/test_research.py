@@ -6,44 +6,40 @@ Script multiplataforma para Mac/Windows/Linux.
 
 import subprocess
 import sys
-import json
 import requests
 import argparse
 
 
 def get_service_url():
-    """Obtener la URL del servicio App Runner desde AWS."""
+    """Obtener la URL pública del servicio desde Terraform (ALB)."""
     try:
-        # Obtener primero el ARN del servicio
-        result = subprocess.run([
-            "aws", "apprunner", "list-services",
-            "--query", "ServiceSummaryList[?ServiceName=='alex-researcher'].ServiceArn",
-            "--output", "json"
-        ], capture_output=True, text=True, check=True)
-        
-        service_arns = json.loads(result.stdout)
-        if not service_arns:
-            print("❌ Servicio App Runner 'alex-researcher' no encontrado.")
-            print("   ¿Lo has desplegado ya? Ejecuta: python deploy.py")
-            sys.exit(1)
-        
-        service_arn = service_arns[0]
-        
-        # Obtener la URL del servicio
-        result = subprocess.run([
-            "aws", "apprunner", "describe-service",
-            "--service-arn", service_arn,
-            "--query", "Service.ServiceUrl",
-            "--output", "text"
-        ], capture_output=True, text=True, check=True)
-        
-        return result.stdout.strip()
+        from pathlib import Path
+        import os
+
+        terraform_dir = Path(__file__).parent.parent.parent / "terraform" / "4_researcher"
+        original_dir = os.getcwd()
+        try:
+            os.chdir(terraform_dir)
+            result = subprocess.run(
+                ["terraform", "output", "-raw", "service_url"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        finally:
+            os.chdir(original_dir)
+
+        url = result.stdout.strip()
+        if not url:
+            raise RuntimeError("Terraform output service_url devolvió vacío.")
+
+        return url
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error obteniendo la URL del servicio: {e}")
-        print("   Asegúrate de que AWS CLI está configurado y tienes los permisos correctos.")
+        print(f"❌ Error obteniendo la URL del servicio desde Terraform: {e}")
+        print("   Asegúrate de haber ejecutado 'terraform apply' en terraform/4_researcher.")
         sys.exit(1)
-    except json.JSONDecodeError as e:
-        print(f"❌ Error al analizar la respuesta de AWS: {e}")
+    except Exception as e:
+        print(f"❌ Error obteniendo la URL del servicio: {e}")
         sys.exit(1)
 
 
@@ -53,19 +49,19 @@ def test_research(topic=None):
     display_topic = topic if topic else "Elección del agente (tema en tendencia)"
     
     # Obtener la URL del servicio
-    print("Obteniendo la URL del servicio App Runner...")
+    print("Obteniendo la URL del servicio (ALB) desde Terraform...")
     service_url = get_service_url()
     
     if not service_url:
         print("❌ No se pudo obtener la URL del servicio")
         sys.exit(1)
     
-    print(f"✅ Servicio encontrado en: https://{service_url}")
+    print(f"✅ Servicio encontrado en: {service_url}")
     
     # Probar primero el endpoint de salud
     print("\nComprobando la salud del servicio...")
     try:
-        health_url = f"https://{service_url}/health"
+        health_url = f"{service_url}/health"
         response = requests.get(health_url, timeout=10)
         response.raise_for_status()
         print("✅ El servicio está saludable")
@@ -79,7 +75,7 @@ def test_research(topic=None):
     print("   Esto tomará 20-30 segundos mientras el agente investiga y analiza...")
     
     try:
-        research_url = f"https://{service_url}/research"
+        research_url = f"{service_url}/research"
         # Solo incluir el tema en el payload si está proporcionado
         payload = {"topic": topic} if topic else {}
         response = requests.post(

@@ -1,7 +1,7 @@
-# Parte 4: Configuración del Agente Researcher
+# Parte 4: Configuración del Agente Researcher (ECS Fargate + ALB)
 # Copia este archivo a terraform.tfvars y actualízalo con tus valores
 
-# Tu región de AWS para App Runner (puede ser cualquier región que soporte App Runner)
+# Tu región de AWS para ECS/ALB
 aws_region = "us-east-1"
 
 # Tu clave API de OpenAI (obtenla en https://platform.openai.com/api-keys)
