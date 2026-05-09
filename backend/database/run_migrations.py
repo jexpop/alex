@@ -3,6 +3,12 @@
 Sencillo ejecutor de migraciones que ejecuta sentencias una por una
 """
 
+# Esto fuerza UTF-8 en stdout y stderr antes de que Python intente imprimir cualquier emoji. 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import os
 import boto3
 from pathlib import Path

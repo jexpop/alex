@@ -4,6 +4,12 @@ Datos de ejemplo para Alex Financial Planner
 Carga más de 20 ETFs populares con información de asignación
 """
 
+# Esto fuerza UTF-8 en stdout y stderr antes de que Python intente imprimir cualquier emoji. 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import os
 import json
 import boto3

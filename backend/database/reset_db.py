@@ -5,8 +5,12 @@ Elimina todas las tablas, recrea el esquema y carga datos semilla
 """
 
 import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+import subprocess
 import argparse
-from pathlib import Path
 from src.client import DataAPIClient
 from src.models import Database
 from src.schemas import UserCreate, AccountCreate, PositionCreate
@@ -17,14 +21,7 @@ def drop_all_tables(db: DataAPIClient):
     """Elimina todas las tablas en el orden correcto (respetando claves foráneas)"""
     print("🗑️  Eliminando tablas existentes...")
     
-    # El orden importa debido a las restricciones de claves foráneas
-    tables_to_drop = [
-        'positions',
-        'accounts',
-        'jobs',
-        'instruments',
-        'users'
-    ]
+    tables_to_drop = ['positions', 'accounts', 'jobs', 'instruments', 'users']
     
     for table in tables_to_drop:
         try:
@@ -33,7 +30,6 @@ def drop_all_tables(db: DataAPIClient):
         except Exception as e:
             print(f"   ⚠️  Error al eliminar {table}: {e}")
     
-    # También eliminar la función
     try:
         db.execute("DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE")
         print(f"   ✅ Función update_updated_at_column eliminada")
@@ -45,7 +41,6 @@ def create_test_data(db_models: Database):
     """Crear usuario de prueba con portafolio de muestra"""
     print("\n👤 Creando usuario de prueba y portafolio...")
     
-    # Crear usuario de prueba con validación Pydantic
     user_data = UserCreate(
         clerk_user_id='test_user_001',
         display_name='Test User',
@@ -53,12 +48,10 @@ def create_test_data(db_models: Database):
         target_retirement_income=Decimal('100000')
     )
     
-    # Verificar si existe el usuario
     existing = db_models.users.find_by_clerk_id('test_user_001')
     if existing:
         print("   ℹ️  El usuario de prueba ya existe")
     else:
-        # Usar datos validados del modelo Pydantic
         validated = user_data.model_dump()
         db_models.users.create_user(
             clerk_user_id=validated['clerk_user_id'],
@@ -68,7 +61,6 @@ def create_test_data(db_models: Database):
         )
         print("   ✅ Usuario de prueba creado")
     
-    # Crear cuentas de prueba con validación Pydantic
     accounts = [
         AccountCreate(
             account_name='401(k)',
@@ -109,14 +101,13 @@ def create_test_data(db_models: Database):
             account_ids.append(acc_id)
             print(f"   ✅ Cuenta creada: {validated['account_name']}")
     
-    # Crear posiciones de prueba en la primera cuenta (401k)
     if account_ids:
         positions = [
-            ('SPY', Decimal('100')),   # $45,000 aprox
-            ('QQQ', Decimal('50')),    # $20,000 aprox
-            ('BND', Decimal('200')),   # $16,000 aprox
-            ('VEA', Decimal('150')),   # $7,500 aprox
-            ('GLD', Decimal('25')),    # $5,000 aprox
+            ('SPY', Decimal('100')),
+            ('QQQ', Decimal('50')),
+            ('BND', Decimal('200')),
+            ('VEA', Decimal('150')),
+            ('GLD', Decimal('25')),
         ]
         
         account_id = account_ids[0]
@@ -126,7 +117,6 @@ def create_test_data(db_models: Database):
             print(f"   ℹ️  La cuenta ya tiene {len(existing_positions)} posiciones")
         else:
             for symbol, quantity in positions:
-                # Validar posición con Pydantic
                 position = PositionCreate(
                     account_id=account_id,
                     symbol=symbol,
@@ -152,19 +142,19 @@ def main():
     print("🚀 Script de Reinicio de la Base de Datos")
     print("=" * 50)
     
-    # Inicializar la base de datos
     db = DataAPIClient()
     db_models = Database()
     
     if not args.skip_drop:
-        # Eliminar todas las tablas
         drop_all_tables(db)
         
-        # Ejecutar migraciones
         print("\n📝 Ejecutando migraciones...")
-        import subprocess
-        result = subprocess.run(['uv', 'run', 'run_migrations.py'], 
-                              capture_output=True, text=True)
+        result = subprocess.run(
+            ['uv', 'run', 'run_migrations.py'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8'
+        )
         
         if result.returncode != 0:
             print("❌ ¡Migración fallida!")
@@ -173,31 +163,28 @@ def main():
         else:
             print("✅ Migraciones completadas")
     
-    # Cargar datos semilla
     print("\n🌱 Cargando datos semilla...")
-    import subprocess
-    result = subprocess.run(['uv', 'run', 'seed_data.py'], 
-                          capture_output=True, text=True)
+    result = subprocess.run(
+        ['uv', 'run', 'seed_data.py'],
+        capture_output=True,
+        text=True,
+        encoding='utf-8'
+    )
     
     if result.returncode != 0:
         print("❌ ¡Error al cargar los datos semilla!")
         print(result.stderr)
         sys.exit(1)
     else:
-        # Extraer cantidad de instrumentos desde la salida
-        if '22/22 instruments loaded' in result.stdout:
+        if result.stdout and '22/22 instruments loaded' in result.stdout:
             print("✅ 22 instrumentos cargados")
         else:
             print("✅ Datos semilla cargados")
     
-    # Crear datos de prueba si se solicita
     if args.with_test_data:
         create_test_data(db_models)
     
-    # Verificación final
     print("\n🔍 Verificación final...")
-    
-    # Contar registros
     tables = ['users', 'instruments', 'accounts', 'positions', 'jobs']
     for table in tables:
         result = db.query(f"SELECT COUNT(*) as count FROM {table}")
