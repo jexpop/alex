@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""
+Sencillo ejecutor de migraciones que ejecuta sentencias una por una
+"""
+
+# Esto fuerza UTF-8 en stdout y stderr antes de que Python intente imprimir cualquier emoji. 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+import os
+import boto3
+from pathlib import Path
+from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv(override=True)
+
+# Obtener la configuración del entorno
+cluster_arn = os.environ.get("AURORA_CLUSTER_ARN")
+secret_arn = os.environ.get("AURORA_SECRET_ARN")
+database = os.environ.get("AURORA_DATABASE", "alex")
+region = os.environ.get("DEFAULT_AWS_REGION", "us-east-1")
+
+if not cluster_arn or not secret_arn:
+    raise ValueError("Faltan AURORA_CLUSTER_ARN o AURORA_SECRET_ARN en las variables de entorno")
+
+client = boto3.client("rds-data", region_name=region)
+
+# Leer archivo de migración
+with open("migrations/001_schema.sql") as f:
+    sql = f.read()
+
+# Definir sentencias en orden (ya que separar es complejo)
+statements = [
+    # Extensión
+    'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"',
+    # Tablas
+    """CREATE TABLE IF NOT EXISTS users (
+        clerk_user_id VARCHAR(255) PRIMARY KEY,
+        display_name VARCHAR(255),
+        years_until_retirement INTEGER,
+        target_retirement_income DECIMAL(12,2),
+        asset_class_targets JSONB DEFAULT '{"equity": 70, "fixed_income": 30}',
+        region_targets JSONB DEFAULT '{"north_america": 50, "international": 50}',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
+    """CREATE TABLE IF NOT EXISTS instruments (
+        symbol VARCHAR(20) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        instrument_type VARCHAR(50),
+        current_price DECIMAL(12,4),
+        allocation_regions JSONB DEFAULT '{}',
+        allocation_sectors JSONB DEFAULT '{}',
+        allocation_asset_class JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
+    """CREATE TABLE IF NOT EXISTS accounts (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+        account_name VARCHAR(255) NOT NULL,
+        account_purpose TEXT,
+        cash_balance DECIMAL(12,2) DEFAULT 0,
+        cash_interest DECIMAL(5,4) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
+    """CREATE TABLE IF NOT EXISTS positions (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        account_id UUID REFERENCES accounts(id) ON DELETE CASCADE,
+        symbol VARCHAR(20) REFERENCES instruments(symbol),
+        quantity DECIMAL(20,8) NOT NULL,
+        as_of_date DATE DEFAULT CURRENT_DATE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(account_id, symbol)
+    )""",
+    """CREATE TABLE IF NOT EXISTS jobs (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        clerk_user_id VARCHAR(255) REFERENCES users(clerk_user_id) ON DELETE CASCADE,
+        job_type VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        request_payload JSONB,
+        report_payload JSONB,
+        charts_payload JSONB,
+        retirement_payload JSONB,
+        summary_payload JSONB,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT NOW()
+    )""",
+    # Índices
+    "CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(clerk_user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_positions_account ON positions(account_id)",
+    "CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions(symbol)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_user ON jobs(clerk_user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+    # Función para timestamps
+    """CREATE OR REPLACE FUNCTION update_updated_at_column()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql""",
+    # Triggers
+    """CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    """CREATE TRIGGER update_instruments_updated_at BEFORE UPDATE ON instruments
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    """CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON accounts
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    """CREATE TRIGGER update_positions_updated_at BEFORE UPDATE ON positions
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+    """CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()""",
+]
+
+print("🚀 Ejecutando migraciones de la base de datos...")
+print("=" * 50)
+
+success_count = 0
+error_count = 0
+
+for i, stmt in enumerate(statements, 1):
+    # Obtener una descripción de lo que estamos creando
+    stmt_type = "statement"
+    if "CREATE TABLE" in stmt.upper():
+        stmt_type = "table"
+    elif "CREATE INDEX" in stmt.upper():
+        stmt_type = "index"
+    elif "CREATE TRIGGER" in stmt.upper():
+        stmt_type = "trigger"
+    elif "CREATE FUNCTION" in stmt.upper():
+        stmt_type = "function"
+    elif "CREATE EXTENSION" in stmt.upper():
+        stmt_type = "extension"
+
+    # Primera línea no vacía para mostrar
+    first_line = next(l for l in stmt.split("\n") if l.strip())[:60]
+    print(f"\n[{i}/{len(statements)}] Creando {stmt_type}...")
+    print(f"    {first_line}...")
+
+    try:
+        response = client.execute_statement(
+            resourceArn=cluster_arn, secretArn=secret_arn, database=database, sql=stmt
+        )
+        print(f"    ✅ Éxito")
+        success_count += 1
+
+    except ClientError as e:
+        error_msg = e.response["Error"]["Message"]
+        if "already exists" in error_msg.lower():
+            print(f"    ⚠️  Ya existe (saltando)")
+            success_count += 1
+        else:
+            print(f"    ❌ Error: {error_msg[:100]}")
+            error_count += 1
+
+print("\n" + "=" * 50)
+print(f"Migración completa: {success_count} exitosas, {error_count} errores")
+
+if error_count == 0:
+    print("\n✅ ¡Todas las migraciones se completaron exitosamente!")
+    print("\n📝 Próximos pasos:")
+    print("1. Cargar datos de prueba: uv run seed_data.py")
+    print("2. Probar operaciones de base de datos: uv run test_db.py")
+else:
+    print(f"\n⚠️  Algunas sentencias fallaron. Consulta los errores arriba.")

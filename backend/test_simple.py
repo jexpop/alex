@@ -9,10 +9,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-def run_command(cmd, cwd):
-    """Ejecuta un comando y captura la salida."""
+def run_command(cmd, cwd, env=None):
     print(f"Ejecutando en {cwd}: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        env=env
+    )
     return result.returncode == 0, result.stdout, result.stderr
 
 def test_agent(agent_name, test_file="test_simple.py"):
@@ -27,33 +34,39 @@ def test_agent(agent_name, test_file="test_simple.py"):
     test_path = agent_dir / test_file
     if not test_path.exists():
         print(f"  ⚠️  {agent_name}: No se encontró {test_file}, se omite")
-        return True  # No es un fallo, solo se omite
+        return True
     
-    # Configura el entorno para lambdas simulados
+    # Configura el entorno
     env = os.environ.copy()
     env['MOCK_LAMBDAS'] = 'true'
-    
-    # Ejecuta la prueba con uv
+    env.pop('VIRTUAL_ENV', None)  # evita conflictos con venvs del padre
+
     success, stdout, stderr = run_command(
         ['uv', 'run', test_file],
-        cwd=str(agent_dir)
+        cwd=str(agent_dir),
+        env=env              # <-- pásalo aquí
     )
     
     if success:
         print(f"  ✅ {agent_name}: Prueba pasada")
         if stdout and "Status Code: 200" in stdout:
-            # Extraer información clave de ejecuciones exitosas
             for line in stdout.split('\n'):
                 if 'Tagged:' in line or 'Success:' in line or 'Message:' in line:
                     print(f"     {line.strip()}")
     else:
         print(f"  ❌ {agent_name}: Prueba fallida")
         if stderr:
-            # Muestra la primera línea de error
-            error_lines = [l for l in stderr.split('\n') if l.strip()]
+            error_lines = [
+                l for l in stderr.split('\n')
+                if l.strip()
+                and 'LiteLLM:INFO' not in l
+                and 'LiteLLM:WARNING' not in l
+                and '[non-fatal]' not in l
+            ]
             if error_lines:
-                print(f"     Error: {error_lines[0][:100]}")
-    
+                for line in error_lines[-10:]:  # últimas 10 líneas, donde suele estar el error real
+                    print(f"     {line[:120]}")
+                
     return success
 
 def main():

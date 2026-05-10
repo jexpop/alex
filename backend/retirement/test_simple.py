@@ -3,6 +3,11 @@
 Prueba simple para el agente de jubilación
 """
 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import asyncio
 import json
 from dotenv import load_dotenv
@@ -62,7 +67,6 @@ def test_retirement():
         print(f"Éxito: {body.get('success', False)}")
         print(f"Mensaje: {body.get('message', 'N/A')}")
         
-        # Verifica qué se guardó realmente en la base de datos
         print("\n" + "=" * 60)
         print("VERIFICANDO EL CONTENIDO DE LA BASE DE DATOS")
         print("=" * 60)
@@ -80,16 +84,9 @@ def test_retirement():
                 if isinstance(analysis, str):
                     print(f"Longitud del análisis: {len(analysis)} caracteres")
                     
-                    # Verifica si contiene artefactos de razonamiento
                     reasoning_indicators = [
-                        "I need to",
-                        "I will",
-                        "Let me",
-                        "First,",
-                        "I should",
-                        "I'll",
-                        "Now I",
-                        "Next,",
+                        "I need to", "I will", "Let me", "First,",
+                        "I should", "I'll", "Now I", "Next,",
                     ]
                     
                     contains_reasoning = any(indicator.lower() in analysis.lower() for indicator in reasoning_indicators)
@@ -99,7 +96,6 @@ def test_retirement():
                     else:
                         print("✅ El análisis parece ser solo salida final (no se detectó razonamiento)")
                     
-                    # Muestra los primeros 500 caracteres y los últimos 200 caracteres
                     print(f"\nPrimeros 500 caracteres:")
                     print("-" * 40)
                     print(analysis[:500])

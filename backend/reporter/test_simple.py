@@ -3,6 +3,11 @@
 Prueba simple para el agente Reporter
 """
 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import asyncio
 import json
 from dotenv import load_dotenv
@@ -83,16 +88,9 @@ def test_reporter():
                 if isinstance(content, str):
                     print(f"Longitud del informe: {len(content)} caracteres")
                     
-                    # Verificar si contiene artefactos de razonamiento
                     reasoning_indicators = [
-                        "I need to",
-                        "I will",
-                        "Let me",
-                        "First,",
-                        "I should",
-                        "I'll",
-                        "Now I",
-                        "Next,",
+                        "I need to", "I will", "Let me", "First,",
+                        "I should", "I'll", "Now I", "Next,",
                     ]
                     
                     contains_reasoning = any(indicator.lower() in content.lower() for indicator in reasoning_indicators)
@@ -102,7 +100,6 @@ def test_reporter():
                     else:
                         print("✅ El informe parece ser solo la salida final (no se detectó razonamiento)")
                     
-                    # Mostrar los primeros 500 caracteres y los últimos 200 caracteres
                     print(f"\nPrimeros 500 caracteres:")
                     print("-" * 40)
                     print(content[:500])

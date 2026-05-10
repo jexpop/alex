@@ -1,0 +1,14 @@
+- Charter
+    no utiliza ni herramientas ni salidas estructuradas
+
+- Planner
+    tiene herramientas
+
+- Reporter
+    tiene la herramienta get_market_insights
+
+- Retirement
+    no utiliza ni herramientas ni salidas estructuradas
+
+- Tagger
+    tiene bastantes salidas estructuradas como por ejemplo AllocationBreakdown

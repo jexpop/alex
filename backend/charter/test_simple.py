@@ -3,6 +3,11 @@
 Prueba simple para el agente Charter
 """
 
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import asyncio
 import json
 from dotenv import load_dotenv
@@ -57,8 +62,6 @@ def test_charter():
 
     print("Probando el Agente Charter...")
     print("=" * 60)
-
-    import sys
 
     print("A punto de llamar a lambda_handler...", flush=True)
     sys.stdout.flush()
